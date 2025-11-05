@@ -45,22 +45,31 @@ exports.handler = async (event, context) => {
             };
         }
 
-        // Create SMTP transporter
+        // Create SMTP transporter with Gmail-optimized settings
         const transporter = nodemailer.createTransporter({
             host: EMAIL_HOST,
             port: parseInt(EMAIL_PORT) || 587,
-            secure: false, // true for 465, false for other ports
+            secure: false, // Use STARTTLS
             auth: {
                 user: EMAIL_USER,
                 pass: EMAIL_PASS
             },
             tls: {
-                rejectUnauthorized: false
-            }
+                rejectUnauthorized: false,
+                ciphers: 'SSLv3'
+            },
+            debug: true, // Enable debug output
+            logger: true // Log to console
         });
 
-        // Verify SMTP connection
-        await transporter.verify();
+        // Verify SMTP connection with better error handling
+        try {
+            await transporter.verify();
+            console.log('SMTP connection verified successfully');
+        } catch (verifyError) {
+            console.error('SMTP verification failed:', verifyError);
+            // Continue anyway - some SMTP servers don't support verify
+        }
 
         const emailsSent = [];
 
@@ -89,11 +98,25 @@ exports.handler = async (event, context) => {
 
     } catch (error) {
         console.error('Email sending error:', error);
+        console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            command: error.command,
+            stack: error.stack,
+            envVars: {
+                hasHost: !!EMAIL_HOST,
+                hasPort: !!EMAIL_PORT,
+                hasUser: !!EMAIL_USER,
+                hasPass: !!EMAIL_PASS,
+                hasTo: !!EMAIL_TO
+            }
+        });
         return {
             statusCode: 500,
             body: JSON.stringify({ 
                 error: 'Failed to send email',
-                details: error.message 
+                details: error.message,
+                code: error.code || 'UNKNOWN'
             })
         };
     }
