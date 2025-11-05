@@ -1,488 +1,262 @@
 const nodemailer = require('nodemailer');
 
 exports.handler = async (event, context) => {
-    // Handle CORS
-    if (event.httpMethod === 'OPTIONS') {
-        return {
-            statusCode: 200,
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': 'Content-Type',
-                'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            },
-            body: ''
-        };
+  // Handle CORS
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      },
+      body: ''
+    };
+  }
+
+  if (event.httpMethod !== 'POST') {
+    return {
+      statusCode: 405,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ error: 'Method not allowed' })
+    };
+  }
+
+  try {
+    console.log('📧 Email function started...');
+    const data = JSON.parse(event.body);
+    console.log('📧 Received data:', JSON.stringify(data));
+    
+    // Check if this is a QUOTE REQUEST
+    if (data.type === 'quote' || data.items || data.customerInfo) {
+      console.log('🛒 Processing QUOTE request...');
+      const ci = data.customerInfo || {};
+      const items = data.items || [];
+      const total = data.totalAmount || items.reduce((s, i) => s + (i.total || 0), 0);
+      const qid = ci.quoteId || 'CRBFTN-' + Date.now();
+      
+      if (!ci.email || !ci.name) {
+        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Missing email or name' }) };
+      }
+      
+      const itemsHtml = items.map(i => '<div style="padding:10px 0;border-bottom:1px solid #eee"><strong>' + i.name + '</strong><br><span style="color:#666">Size: ' + i.size + ' | Qty: ' + i.quantity + '</span><br><strong style="color:#dc2626">R' + i.total.toFixed(2) + '</strong></div>').join('');
+      
+      const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS } });
+      
+      await transporter.sendMail({ 
+        from: process.env.EMAIL_USER, 
+        to: 'crabfontain@gmail.com', 
+        subject: '🛍️ New Quote #' + qid + ' - ' + ci.name, 
+        html: '<div style="font-family:Arial;max-width:600px;margin:0 auto"><div style="background:linear-gradient(135deg,#dc2626,#2563eb);padding:30px;text-align:center"><h1 style="color:white;margin:0">CRBFTN</h1></div><div style="padding:30px"><h3>Customer Info</h3><p><strong>Name:</strong> ' + ci.name + '<br><strong>Email:</strong> ' + ci.email + '<br><strong>Phone:</strong> ' + (ci.phone || 'N/A') + '</p><h3>Items:</h3>' + itemsHtml + '<div style="background:#dc2626;color:white;padding:15px;text-align:center;font-size:24px;font-weight:bold;margin:20px 0">TOTAL: R' + total.toFixed(2) + '</div></div></div>' 
+      });
+      
+      await transporter.sendMail({ 
+        from: process.env.EMAIL_USER, 
+        to: ci.email, 
+        subject: '🛍️ Your CRBFTN Quote #' + qid, 
+        html: '<div style="font-family:Arial;max-width:600px;margin:0 auto"><div style="background:linear-gradient(135deg,#dc2626,#2563eb);padding:30px;text-align:center"><h1 style="color:white;margin:0">CRBFTN</h1><p style="color:white">Thank You, ' + ci.name + '!</p></div><div style="padding:30px"><h3>Quote Received!</h3><p>We will get back to you within 24 hours.</p><h3>Your Items:</h3>' + itemsHtml + '<div style="background:#dc2626;color:white;padding:15px;text-align:center;font-size:20px;font-weight:bold">TOTAL: R' + total.toFixed(2) + '</div><p style="text-align:center;margin-top:30px"><strong>Contact:</strong><br>📧 crabfontain@gmail.com<br>📞 +27 68 000 3578</p></div></div>' 
+      });
+      
+      console.log('✅ Quote emails sent');
+      return { statusCode: 200, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ success: true, message: 'Quote request sent!', quoteId: qid }) };
+    }
+    
+    // CONTACT FORM handling
+    console.log('📧 Processing contact form...');
+    const formData = data.formData || data;
+    
+    // Simple validation
+    if (!formData.firstName || !formData.lastName || !formData.email || !formData.message) {
+      console.log('❌ Missing required fields');
+      return {
+        statusCode: 400,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'Please fill in all required fields: First Name, Last Name, Email, and Message' })
+      };
     }
 
-    // Only allow POST requests
-    if (event.httpMethod !== 'POST') {
-        return {
-            statusCode: 405,
-            headers: { 'Access-Control-Allow-Origin': '*' },
-            body: JSON.stringify({ error: 'Method not allowed' })
-        };
-    }
+    // Create transporter
+    console.log('📧 Creating transporter...');
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
 
-    try {
-        // Parse request body
-        const data = JSON.parse(event.body);
-        const { type, formData, templateData } = data;
+    // Send email to business
+    console.log('📧 Sending business email...');
+    const businessResult = await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: 'crabfontain@gmail.com',
+      subject: `� New Contact - ${formData.firstName} ${formData.lastName}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: 'Arial', sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
+            .container { max-width: 600px; margin: 0 auto; background: white; }
+            .header { background: linear-gradient(135deg, #dc2626 0%, #2563eb 100%); padding: 30px; text-align: center; }
+            .logo-text { color: white; font-size: 28px; font-weight: bold; margin: 0; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
+            .tagline { color: #ffffff; font-size: 14px; margin: 5px 0 0 0; opacity: 0.9; }
+            .banner { background: #1f2937; color: #dc2626; padding: 15px; text-align: center; font-size: 18px; font-weight: bold; }
+            .content { padding: 30px; }
+            .inquiry-box { background: #f8f9fa; border-left: 5px solid #dc2626; padding: 20px; margin: 20px 0; }
+            .field-row { margin: 15px 0; }
+            .field-label { font-weight: bold; color: #1f2937; display: inline-block; width: 120px; }
+            .field-value { color: #555; }
+            .message-box { background: #dc2626; color: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
+            .footer { background: #1f2937; color: #dc2626; padding: 20px; text-align: center; font-size: 12px; }
+            .divider { height: 3px; background: linear-gradient(90deg, #dc2626, #2563eb, #dc2626); margin: 20px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1 class="logo-text">CRBFTN</h1>
+              <p class="tagline">Premium Clothing from Makhado • Style Redefined</p>
+            </div>
+            
+            <div class="banner">
+              � NEW CONTACT INQUIRY
+            </div>
+            
+            <div class="content">
+              <div class="inquiry-box">
+                <h3 style="color: #dc2626; margin-top: 0;">Contact Information</h3>
+                <div class="field-row">
+                  <span class="field-label">Name:</span>
+                  <span class="field-value">${formData.firstName} ${formData.lastName}</span>
+                </div>
+                <div class="field-row">
+                  <span class="field-label">Email:</span>
+                  <span class="field-value">${formData.email}</span>
+                </div>
+                <div class="field-row">
+                  <span class="field-label">Subject:</span>
+                  <span class="field-value">${formData.subject || 'General Inquiry'}</span>
+                </div>
+              </div>
+              
+              <div class="divider"></div>
+              
+              <div class="message-box">
+                <h3 style="margin-top: 0; color: white;">Customer Message:</h3>
+                <p style="margin: 0; line-height: 1.6;">${formData.message}</p>
+              </div>
+              
+              <p style="color: #555; margin-top: 30px;">
+                <strong>Next Steps:</strong> Respond within 24 hours to maintain excellent customer service standards.
+              </p>
+            </div>
+            
+            <div class="footer">
+              <p style="margin: 0;"><strong>CRBFTN Premium Clothing</strong></p>
+              <p style="margin: 5px 0;">Makhado, Limpopo Province, South Africa</p>
+              <p style="margin: 5px 0;">📧 crabfontain@gmail.com • 📞 +27 68 000 3578</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    });
 
-        // Validate required fields
-        if (!type || !formData) {
-            return {
-                statusCode: 400,
-                headers: { 'Access-Control-Allow-Origin': '*' },
-                body: JSON.stringify({ error: 'Missing required fields: type, formData' })
-            };
-        }
+    console.log('✅ Business email sent:', businessResult.messageId);
 
-        // Get environment variables
-        const {
-            EMAIL_USER,
-            EMAIL_PASS,
-            EMAIL_TO
-        } = process.env;
+    // Send confirmation to customer
+    console.log('📧 Sending confirmation email...');
+    const confirmationResult = await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: formData.email,
+      subject: '� Thank you for contacting CRBFTN!',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: 'Arial', sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
+            .container { max-width: 600px; margin: 0 auto; background: white; }
+            .header { background: linear-gradient(135deg, #dc2626 0%, #2563eb 100%); padding: 30px; text-align: center; }
+            .logo-text { color: white; font-size: 28px; font-weight: bold; margin: 0; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
+            .tagline { color: #ffffff; font-size: 14px; margin: 5px 0 0 0; opacity: 0.9; }
+            .welcome-banner { background: #1f2937; color: #dc2626; padding: 20px; text-align: center; }
+            .welcome-title { font-size: 24px; margin: 0; font-weight: bold; }
+            .content { padding: 30px; }
+            .highlight-box { background: linear-gradient(135deg, #dc2626, #2563eb); color: white; padding: 25px; border-radius: 10px; margin: 20px 0; text-align: center; }
+            .message-recap { background: #f8f9fa; border-left: 5px solid #2563eb; padding: 20px; margin: 20px 0; }
+            .contact-box { background: #1f2937; color: #dc2626; padding: 20px; border-radius: 8px; margin: 20px 0; }
+            .footer { background: linear-gradient(135deg, #dc2626 0%, #2563eb 100%); color: white; padding: 20px; text-align: center; font-size: 12px; }
+            .divider { height: 3px; background: linear-gradient(90deg, #dc2626, #2563eb, #dc2626); margin: 20px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1 class="logo-text">CRBFTN</h1>
+              <p class="tagline">Premium Clothing from Makhado • Style Redefined</p>
+            </div>
+            
+            <div class="welcome-banner">
+              <h2 class="welcome-title">Thank You, ${formData.firstName}!</h2>
+            </div>
+            
+            <div class="content">
+              <div class="highlight-box">
+                <h3 style="margin-top: 0;">We've Received Your Message!</h3>
+                <p style="margin: 0; font-size: 16px;">Thank you for reaching out to CRBFTN. We'll respond to your inquiry within 24 hours.</p>
+              </div>
+              
+              <div class="message-recap">
+                <h3 style="color: #2563eb; margin-top: 0;">Your Message to Us:</h3>
+                <p style="margin: 0; line-height: 1.6; color: #555;">"${formData.message}"</p>
+              </div>
+              
+              <div class="divider"></div>
+              
+              <div class="contact-box">
+                <h3 style="margin-top: 0; color: #dc2626;">Contact Information</h3>
+                <p style="margin: 5px 0; color: white;"><strong>Email:</strong> crabfontain@gmail.com</p>
+                <p style="margin: 5px 0; color: white;"><strong>Phone/WhatsApp:</strong> +27 68 000 3578</p>
+                <p style="margin: 5px 0; color: white;"><strong>Location:</strong> Makhado, Limpopo Province, South Africa</p>
+              </div>
+              
+              <p style="text-align: center; color: #555; margin-top: 30px;">
+                <em>"Style redefined. Quality delivered. Proudly from Makhado."</em>
+              </p>
+            </div>
+            
+            <div class="footer">
+              <p style="margin: 0; font-weight: bold;">Best regards,</p>
+              <p style="margin: 5px 0;">The CRBFTN Team</p>
+              <p style="margin: 5px 0; opacity: 0.8;">Premium clothing from the heart of Limpopo</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    });
 
-        // Validate SMTP configuration
-        if (!EMAIL_USER || !EMAIL_PASS || !EMAIL_TO) {
-            console.error('Missing SMTP configuration:', {
-                EMAIL_USER: !!EMAIL_USER,
-                EMAIL_PASS: !!EMAIL_PASS,
-                EMAIL_TO: !!EMAIL_TO
-            });
-            return {
-                statusCode: 500,
-                headers: { 'Access-Control-Allow-Origin': '*' },
-                body: JSON.stringify({ error: 'SMTP configuration incomplete' })
-            };
-        }
+    console.log('✅ Confirmation email sent:', confirmationResult.messageId);
 
-        // Create transporter (same as working Mulambwane site)
-        console.log('📧 Creating transporter...');
-        const transporter = nodemailer.createTransporter({
-            service: 'gmail',
-            auth: {
-                user: EMAIL_USER,
-                pass: EMAIL_PASS
-            }
-        });
+    return {
+      statusCode: 200,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ 
+        success: true,
+        message: 'Thank you! Your message has been sent successfully. Check your email for confirmation.'
+      })
+    };
 
-        const emailsSent = [];
-
-        switch (type) {
-            case 'contact':
-                await sendContactEmails(transporter, formData, templateData, EMAIL_TO, emailsSent);
-                break;
-            case 'quote':
-                await sendQuoteEmails(transporter, formData, templateData, EMAIL_TO, emailsSent);
-                break;
-            default:
-                return {
-                    statusCode: 400,
-                    headers: { 'Access-Control-Allow-Origin': '*' },
-                    body: JSON.stringify({ error: 'Invalid email type' })
-                };
-        }
-
-        return {
-            statusCode: 200,
-            headers: { 'Access-Control-Allow-Origin': '*' },
-            body: JSON.stringify({ 
-                success: true, 
-                message: `Emails sent successfully`,
-                emailsSent: emailsSent.length
-            })
-        };
-
-    } catch (error) {
-        console.error('Email sending error:', error);
-        console.error('Error details:', {
-            message: error.message,
-            code: error.code,
-            command: error.command,
-            stack: error.stack,
-            envVars: {
-                hasUser: !!EMAIL_USER,
-                hasPass: !!EMAIL_PASS,
-                hasTo: !!EMAIL_TO
-            }
-        });
-        return {
-            statusCode: 500,
-            headers: { 'Access-Control-Allow-Origin': '*' },
-            body: JSON.stringify({ 
-                error: 'Failed to send email',
-                details: error.message,
-                code: error.code || 'UNKNOWN'
-            })
-        };
-    }
+  } catch (error) {
+    console.error('❌ Contact form error:', error);
+    return {
+      statusCode: 500,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ 
+        error: 'Failed to send message: ' + error.message 
+      })
+    };
+  }
 };
-
-// Send contact form emails (business notification + customer thank you)
-async function sendContactEmails(transporter, formData, templateData, businessEmail, emailsSent) {
-    const { firstName, lastName, email, subject, message, submissionDate } = formData;
-    
-    // Business notification email
-    const businessEmailContent = generateContactBusinessEmail({
-        firstName,
-        lastName,
-        email,
-        subject,
-        message,
-        submissionDate
-    });
-
-    await transporter.sendMail({
-        from: `"CRBFTN Website" <${process.env.EMAIL_USER}>`,
-        to: businessEmail,
-        subject: `New CRBFTN Contact Form Submission from ${firstName} ${lastName}`,
-        html: businessEmailContent
-    });
-    emailsSent.push('business-notification');
-
-    // Customer thank you email
-    const customerEmailContent = generateContactCustomerEmail({
-        firstName,
-        lastName,
-        subject,
-        submissionDate
-    });
-
-    await transporter.sendMail({
-        from: `"CRBFTN" <${process.env.EMAIL_USER}>`,
-        to: email,
-        subject: 'Thank you for contacting CRBFTN - We\'ll be in touch soon!',
-        html: customerEmailContent
-    });
-    emailsSent.push('customer-thankyou');
-}
-
-// Send quote request emails (business notification + customer confirmation)
-async function sendQuoteEmails(transporter, formData, templateData, businessEmail, emailsSent) {
-    const { 
-        customerEmail, 
-        customerName, 
-        customerMessage, 
-        items, 
-        totalAmount, 
-        itemsCount, 
-        timestamp,
-        quoteId 
-    } = formData;
-
-    // Business notification email
-    const businessEmailContent = generateQuoteBusinessEmail({
-        customerEmail,
-        customerName,
-        customerMessage,
-        items,
-        totalAmount,
-        itemsCount,
-        timestamp,
-        quoteId
-    });
-
-    await transporter.sendMail({
-        from: `"CRBFTN Website" <${process.env.EMAIL_USER}>`,
-        to: businessEmail,
-        subject: `New CRBFTN Quote Request from ${customerName || 'Customer'}`,
-        html: businessEmailContent
-    });
-    emailsSent.push('quote-business');
-
-    // Customer confirmation email
-    const customerEmailContent = generateQuoteCustomerEmail({
-        customerEmail,
-        customerName,
-        customerMessage,
-        items,
-        totalAmount,
-        itemsCount,
-        timestamp,
-        quoteId
-    });
-
-    await transporter.sendMail({
-        from: `"CRBFTN" <${process.env.EMAIL_USER}>`,
-        to: customerEmail,
-        subject: 'Your CRBFTN Quote Request - We\'re Preparing Your Custom Quote!',
-        html: customerEmailContent
-    });
-    emailsSent.push('quote-customer');
-}
-
-// Generate contact business notification email HTML
-function generateContactBusinessEmail(data) {
-    const { firstName, lastName, email, subject, message, submissionDate } = data;
-    const timestamp = new Date(submissionDate).toLocaleString();
-    
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #dc2626, #1d4ed8); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-        .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-        .field { margin: 15px 0; padding: 10px; background: white; border-radius: 5px; border-left: 4px solid #dc2626; }
-        .label { font-weight: bold; color: #1f2937; }
-        .value { margin-top: 5px; }
-        .message-box { background: white; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb; margin: 20px 0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🔥 New Contact Form Submission</h1>
-            <p>CRBFTN Website Contact Form</p>
-        </div>
-        <div class="content">
-            <div class="field">
-                <div class="label">👤 Customer Name:</div>
-                <div class="value">${firstName} ${lastName}</div>
-            </div>
-            <div class="field">
-                <div class="label">📧 Email Address:</div>
-                <div class="value">${email}</div>
-            </div>
-            <div class="field">
-                <div class="label">📋 Subject:</div>
-                <div class="value">${subject}</div>
-            </div>
-            <div class="field">
-                <div class="label">⏰ Submitted:</div>
-                <div class="value">${timestamp}</div>
-            </div>
-            <div class="message-box">
-                <div class="label">💬 Message:</div>
-                <div class="value">${message}</div>
-            </div>
-        </div>
-    </div>
-</body>
-</html>`;
-}
-
-// Generate contact customer thank you email HTML
-function generateContactCustomerEmail(data) {
-    const { firstName, lastName, subject, submissionDate } = data;
-    const timestamp = new Date(submissionDate).toLocaleString();
-    
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #dc2626, #1d4ed8); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-        .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-        .highlight { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #dc2626; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>✅ Thank You!</h1>
-            <p>Your message has been received</p>
-        </div>
-        <div class="content">
-            <p>Hi ${firstName},</p>
-            <p>Thank you for contacting CRBFTN! We've received your message about "${subject}" and will get back to you within 24 hours.</p>
-            <div class="highlight">
-                <p><strong>What happens next?</strong></p>
-                <p>• Our team will review your message<br>
-                • We'll respond within 1 business day<br>
-                • You'll receive our reply at ${data.email || 'your email address'}</p>
-            </div>
-            <p>Best regards,<br>The CRBFTN Team</p>
-            <p><small>Submitted: ${timestamp}</small></p>
-        </div>
-    </div>
-</body>
-</html>`;
-}
-
-// Generate quote business notification email HTML
-function generateQuoteBusinessEmail(data) {
-    const { customerEmail, customerName, customerMessage, items, totalAmount, itemsCount, timestamp, quoteId } = data;
-    const itemsHtml = items.map(item => `
-        <tr style="border-bottom: 1px solid #e5e7eb;">
-            <td style="padding: 10px;">${item.name}</td>
-            <td style="padding: 10px; text-align: center;">${item.size}</td>
-            <td style="padding: 10px; text-align: center;">${item.quantity}</td>
-            <td style="padding: 10px; text-align: right;">R${item.price}</td>
-            <td style="padding: 10px; text-align: right; font-weight: bold;">R${item.total}</td>
-        </tr>
-    `).join('');
-    
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 700px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #dc2626, #1d4ed8); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-        .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-        .customer-info { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #1d4ed8; }
-        .items-table { width: 100%; background: white; border-radius: 8px; overflow: hidden; margin: 20px 0; }
-        .items-table th { background: #1f2937; color: white; padding: 12px; text-align: left; }
-        .items-table td { padding: 10px; }
-        .total { background: #dc2626; color: white; padding: 15px; text-align: center; font-size: 18px; font-weight: bold; border-radius: 8px; margin: 20px 0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🛒 New Quote Request</h1>
-            <p>Quote ID: ${quoteId}</p>
-        </div>
-        <div class="content">
-            <div class="customer-info">
-                <h3>👤 Customer Details</h3>
-                <p><strong>Name:</strong> ${customerName}</p>
-                <p><strong>Email:</strong> ${customerEmail}</p>
-                <p><strong>Message:</strong> ${customerMessage}</p>
-                <p><strong>Items:</strong> ${itemsCount} items</p>
-                <p><strong>Requested:</strong> ${new Date(timestamp).toLocaleString()}</p>
-            </div>
-            
-            <table class="items-table">
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th style="text-align: center;">Size</th>
-                        <th style="text-align: center;">Qty</th>
-                        <th style="text-align: right;">Price</th>
-                        <th style="text-align: right;">Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${itemsHtml}
-                </tbody>
-            </table>
-            
-            <div class="total">
-                Estimated Total: R${totalAmount.toFixed(2)}
-            </div>
-            
-            <p><strong>⚡ Action Required:</strong> Send quote within 24 hours for best conversion rates.</p>
-        </div>
-    </div>
-</body>
-</html>`;
-}
-
-// Generate quote customer confirmation email HTML
-function generateQuoteCustomerEmail(data) {
-    const { customerEmail, customerName, customerMessage, items, totalAmount, itemsCount, timestamp, quoteId } = data;
-    const itemsHtml = items.map(item => `
-        <tr style="border-bottom: 1px solid #e5e7eb;">
-            <td style="padding: 10px;">${item.name}</td>
-            <td style="padding: 10px; text-align: center;">${item.size}</td>
-            <td style="padding: 10px; text-align: center;">${item.quantity}</td>
-            <td style="padding: 10px; text-align: right;">R${item.price}</td>
-        </tr>
-    `).join('');
-    
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #dc2626, #1d4ed8); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-        .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-        .quote-info { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #dc2626; }
-        .items-table { width: 100%; background: white; border-radius: 8px; overflow: hidden; margin: 20px 0; }
-        .items-table th { background: #1f2937; color: white; padding: 12px; text-align: left; }
-        .next-steps { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
-        .step { display: flex; margin: 10px 0; }
-        .step-number { background: #dc2626; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; margin-right: 15px; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>✅ Quote Request Received!</h1>
-            <p>We're preparing your personalized quote</p>
-        </div>
-        <div class="content">
-            <p>Hi ${customerName},</p>
-            <p>Thank you for your interest in CRBFTN! We've received your quote request and will send you a personalized quote within 24 hours.</p>
-            
-            <div class="quote-info">
-                <h3>📋 Quote Details</h3>
-                <p><strong>Quote ID:</strong> ${quoteId}</p>
-                <p><strong>Items Requested:</strong> ${itemsCount} items</p>
-                <p><strong>Estimated Value:</strong> R${totalAmount.toFixed(2)}</p>
-                <p><strong>Your Message:</strong> ${customerMessage}</p>
-            </div>
-            
-            <table class="items-table">
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th style="text-align: center;">Size</th>
-                        <th style="text-align: center;">Qty</th>
-                        <th style="text-align: right;">Price</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${itemsHtml}
-                </tbody>
-            </table>
-            
-            <div class="next-steps">
-                <h3>📞 What Happens Next?</h3>
-                <div class="step">
-                    <div class="step-number">1</div>
-                    <div>Our team reviews your items and prepares competitive pricing</div>
-                </div>
-                <div class="step">
-                    <div class="step-number">2</div>
-                    <div>You'll receive a detailed quote via email within 24 hours</div>
-                </div>
-                <div class="step">
-                    <div class="step-number">3</div>
-                    <div>We'll call you within 24-48 hours to discuss your order</div>
-                </div>
-                <div class="step">
-                    <div class="step-number">4</div>
-                    <div>Payment and delivery coordination once you approve</div>
-                </div>
-            </div>
-            
-            <div class="quote-info">
-                <h3>💳 Payment Information</h3>
-                <p><strong>Bank:</strong> FNB</p>
-                <p><strong>Account Name:</strong> CRBFTN Clothing</p>
-                <p><strong>Account Number:</strong> 6241 7894 123</p>
-                <p><strong>Branch Code:</strong> 250 655</p>
-                <p><strong>Reference:</strong> ${quoteId}</p>
-                <p style="color: #dc2626; font-weight: bold;">⚠️ Please use your Quote ID as payment reference</p>
-            </div>
-            
-            <div class="quote-info">
-                <h3>📞 Contact Timeline</h3>
-                <p><strong>Quote Delivery:</strong> Within 24 hours via email</p>
-                <p><strong>Phone Call:</strong> Within 24-48 hours to discuss details</p>
-                <p><strong>Order Processing:</strong> 1-2 business days after payment</p>
-                <p><strong>Delivery:</strong> 3-5 business days (nationwide)</p>
-            </div>
-            
-            <p>Best regards,<br>The CRBFTN Team</p>
-        </div>
-    </div>
-</body>
-</html>`;
-}
